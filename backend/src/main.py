@@ -6,9 +6,28 @@ from src.config.database import Base,engine
 from src.models import entities
 from src.routes.api import router
 from src.middlewares.request import RequestId,SecurityHeaders
+LEGACY_COLUMNS={
+ 'forecast_runs':[('revision','INTEGER DEFAULT 0')],
+ 'staffings':[('branch','VARCHAR(30)'),('revision','INTEGER DEFAULT 0'),('basis','JSON'),('approved_by',"VARCHAR(100) DEFAULT ''"),('approved_at',"VARCHAR(40) DEFAULT ''"),('invalid_reason',"TEXT DEFAULT ''")],
+}
+
+
+def upgrade_legacy_columns():
+ """旧库由 create_all 建表时缺少新列；此处补齐，避免无在线迁移器时启动失败。"""
+ from sqlalchemy import inspect,text
+ inspector=inspect(engine)
+ for table,columns in LEGACY_COLUMNS.items():
+  if table not in inspector.get_table_names():continue
+  existing={c['name'] for c in inspector.get_columns(table)}
+  with engine.begin() as c:
+   for name,ddl in columns:
+    if name not in existing:c.execute(text(f'ALTER TABLE {table} ADD COLUMN {name} {ddl}'))
+
+
 @asynccontextmanager
 async def lifespan(app):
  Base.metadata.create_all(engine)
+ upgrade_legacy_columns()
  if os.getenv('SEED_DEMO')=='true':
   try:
    from scripts.seed_demo import seed
